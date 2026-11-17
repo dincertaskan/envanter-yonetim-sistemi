@@ -27,7 +27,7 @@ function RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
 
   if (user) {
-    return <Navigate to="/equipment" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   // pattern verilirse sadece uyan karakterleri kabul eder (ör. ad alanına rakam yazılamaz)
@@ -51,7 +51,7 @@ function RegisterPage() {
       const { confirmPassword, ...payload } = form;
       await register(payload);
       showToast("Kayıt başarılı, hoş geldiniz!");
-      navigate("/equipment", { replace: true });
+      navigate("/dashboard", { replace: true });
     } catch (err) {
       setFieldErrors(err.response?.data?.fieldErrors || {});
       showToast(getErrorMessage(err, "Kayıt sırasında bir hata oluştu"), "danger");

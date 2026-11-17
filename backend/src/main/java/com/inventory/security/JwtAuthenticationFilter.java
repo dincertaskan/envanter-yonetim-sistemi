@@ -49,6 +49,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private void authenticate(String email, HttpServletRequest request) {
         try {
             UserDetails user = userDetailsService.loadUserByUsername(email);
+            if (!user.isEnabled()) {
+                // Engellenmiş kullanıcının eski token'ı da geçersizdir
+                return;
+            }
             var authentication = new UsernamePasswordAuthenticationToken(user, null, user.getAuthorities());
             authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
             SecurityContextHolder.getContext().setAuthentication(authentication);

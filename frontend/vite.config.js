@@ -17,6 +17,7 @@ export default defineConfig({
         manualChunks: {
           react: ["react", "react-dom", "react-router-dom"],
           ui: ["react-bootstrap", "react-icons"],
+          charts: ["recharts"],
           calendar: [
             "@fullcalendar/core",
             "@fullcalendar/react",

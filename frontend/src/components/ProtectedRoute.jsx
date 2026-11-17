@@ -5,8 +5,10 @@ import { useAuth } from "../context/AuthContext";
 /**
  * Giriş yapmamış kullanıcıyı giriş sayfasına yönlendirir.
  * adminOnly verilirse yönetici olmayanları ana sayfaya gönderir.
+ * Tek kullanımlık şifreyle giren kullanıcı, yeni şifre belirleyene kadar sadece şifre değiştirme
+ * sayfasını (passwordChange) görebilir.
  */
-function ProtectedRoute({ adminOnly = false }) {
+function ProtectedRoute({ adminOnly = false, passwordChange = false }) {
   const { user, loading, isAdmin } = useAuth();
   const location = useLocation();
 
@@ -22,8 +24,16 @@ function ProtectedRoute({ adminOnly = false }) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />;
   }
 
+  if (user.mustChangePassword && !passwordChange) {
+    return <Navigate to="/change-password" replace />;
+  }
+
+  if (!user.mustChangePassword && passwordChange) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   if (adminOnly && !isAdmin) {
-    return <Navigate to="/equipment" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   return <Outlet />;

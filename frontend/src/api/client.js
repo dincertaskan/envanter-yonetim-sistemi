@@ -37,4 +37,45 @@ export function getErrorMessage(error, fallback = "Bir hata oluştu") {
   return error.response.data?.message || fallback;
 }
 
+/** Boş filtre değerlerini istek parametrelerinden çıkarır. */
+export function cleanParams(params) {
+  return Object.fromEntries(
+    Object.entries(params).filter(([, v]) => v !== "" && v !== null && v !== undefined && v !== false)
+  );
+}
+
+/**
+ * Dosya indirir (Excel / PDF). Token gerektiği için normal bir link yerine
+ * axios ile indirilip tarayıcıya kaydettirilir.
+ */
+export async function downloadFile(url, params = {}, fallbackName = "dosya") {
+  let res;
+  try {
+    res = await client.get(url, { params: cleanParams(params), responseType: "blob" });
+  } catch (err) {
+    // Hata cevabı da blob olarak gelir; mesajı okuyabilmek için JSON'a çevir
+    if (err.response?.data instanceof Blob) {
+      try {
+        err.response.data = JSON.parse(await err.response.data.text());
+      } catch {
+        /* JSON değilse olduğu gibi bırak */
+      }
+    }
+    throw err;
+  }
+
+  const disposition = res.headers["content-disposition"] || "";
+  const match = /filename\*=UTF-8''([^;]+)/i.exec(disposition) || /filename="?([^";]+)"?/i.exec(disposition);
+  const filename = match ? decodeURIComponent(match[1]) : fallbackName;
+
+  const href = URL.createObjectURL(res.data);
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 1000);
+}
+
 export default client;

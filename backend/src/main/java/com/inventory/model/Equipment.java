@@ -1,6 +1,7 @@
 package com.inventory.model;
 
 import jakarta.persistence.*;
+import org.hibernate.annotations.ColumnDefault;
 import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDate;
@@ -26,10 +27,28 @@ public class Equipment {
     @Column(nullable = false, length = 100)
     private String serialNumber;
 
+    @Column(length = 50)
+    private String category;
+
+    @Column(length = 100)
+    private String location;
+
+    // Bir sonraki kalibrasyonun yapılması gereken tarih
     private LocalDate calibrationDate;
 
     @Column(length = 500)
     private String description;
+
+    // Eski kayıtlar kullanılabilir kabul edilir
+    @Enumerated(EnumType.STRING)
+    @ColumnDefault("'AVAILABLE'")
+    @Column(nullable = false, length = 20)
+    private EquipmentStatus status = EquipmentStatus.AVAILABLE;
+
+    // true ise kullanıcıların rezervasyonları yönetici onayından sonra kesinleşir
+    @ColumnDefault("false")
+    @Column(nullable = false)
+    private boolean requiresApproval = false;
 
     // false = silinmiş (kayıt veritabanında kalır, listelerde görünmez)
     @Column(nullable = false)
@@ -58,11 +77,23 @@ public class Equipment {
     public String getSerialNumber() { return serialNumber; }
     public void setSerialNumber(String serialNumber) { this.serialNumber = serialNumber; }
 
+    public String getCategory() { return category; }
+    public void setCategory(String category) { this.category = category; }
+
+    public String getLocation() { return location; }
+    public void setLocation(String location) { this.location = location; }
+
     public LocalDate getCalibrationDate() { return calibrationDate; }
     public void setCalibrationDate(LocalDate calibrationDate) { this.calibrationDate = calibrationDate; }
 
     public String getDescription() { return description; }
     public void setDescription(String description) { this.description = description; }
+
+    public EquipmentStatus getStatus() { return status; }
+    public void setStatus(EquipmentStatus status) { this.status = status; }
+
+    public boolean isRequiresApproval() { return requiresApproval; }
+    public void setRequiresApproval(boolean requiresApproval) { this.requiresApproval = requiresApproval; }
 
     public boolean isActive() { return active; }
     public void setActive(boolean active) { this.active = active; }

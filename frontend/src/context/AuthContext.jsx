@@ -57,9 +57,12 @@ export function AuthProvider({ children }) {
     setUser(null);
   }, []);
 
+  // Şifre değiştirme gibi işlemlerden sonra güncel kullanıcı bilgisini yerleştirmek için
+  const updateUser = useCallback((updated) => setUser(updated), []);
+
   const value = useMemo(
-    () => ({ user, loading, isAdmin: user?.role === "ADMIN", login, register, logout }),
-    [user, loading, login, register, logout]
+    () => ({ user, loading, isAdmin: user?.role === "ADMIN", login, register, logout, updateUser }),
+    [user, loading, login, register, logout, updateUser]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

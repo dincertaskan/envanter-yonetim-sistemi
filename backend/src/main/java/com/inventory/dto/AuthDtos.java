@@ -1,5 +1,6 @@
 package com.inventory.dto;
 
+import com.inventory.model.PasswordResetRequest;
 import com.inventory.model.Role;
 import com.inventory.model.User;
 import jakarta.validation.constraints.Email;
@@ -8,10 +9,15 @@ import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
+import java.time.LocalDateTime;
+
 /**
  * Kimlik doğrulama ve kullanıcı işlemlerinde kullanılan istek / cevap modelleri.
  */
 public final class AuthDtos {
+
+    // En az 8 karakter; büyük harf, küçük harf ve özel karakter
+    static final String PASSWORD_REGEX = "^(?=.*[a-z])(?=.*[A-Z])(?=.*[^a-zA-Z0-9]).{8,}$";
 
     private AuthDtos() {
     }
@@ -48,7 +54,7 @@ public final class AuthDtos {
 
             @NotBlank(message = "Şifre zorunludur")
             @Pattern(
-                    regexp = "^(?=.*[a-z])(?=.*[A-Z])(?=.*[^a-zA-Z0-9]).{8,}$",
+                    regexp = PASSWORD_REGEX,
                     message = "Şifre en az 8 karakter olmalı; büyük harf, küçük harf ve özel karakter içermelidir"
             )
             String password
@@ -65,9 +71,16 @@ public final class AuthDtos {
             String fullName,
             String email,
             String phone,
-            Role role
+            Role role,
+            boolean enabled,
+            // Hatalı denemeler nedeniyle kilitliyse kilidin açılacağı zaman, değilse null
+            LocalDateTime lockedUntil,
+            // true = tek kullanımlık şifreyle girdi, yeni şifre belirlemeli
+            boolean mustChangePassword,
+            LocalDateTime createdAt
     ) {
         public static UserResponse from(User user) {
+            LocalDateTime now = LocalDateTime.now();
             return new UserResponse(
                     user.getId(),
                     user.getFirstName(),
@@ -75,7 +88,11 @@ public final class AuthDtos {
                     user.getFullName(),
                     user.getEmail(),
                     user.getPhone(),
-                    user.getRole()
+                    user.getRole(),
+                    user.isEnabled(),
+                    user.isLocked(now) ? user.getLockedUntil() : null,
+                    user.isMustChangePassword(),
+                    user.getCreatedAt()
             );
         }
     }
@@ -84,5 +101,55 @@ public final class AuthDtos {
             @NotNull(message = "Rol zorunludur")
             Role role
     ) {
+    }
+
+    public record EnabledUpdateRequest(
+            @NotNull(message = "Durum zorunludur")
+            Boolean enabled
+    ) {
+    }
+
+    public record ForgotPasswordRequest(
+            @NotBlank(message = "Email zorunludur")
+            @Email(message = "Geçerli bir email giriniz")
+            String email
+    ) {
+    }
+
+    /** Yöneticinin belirlediği tek kullanımlık şifre. */
+    public record TemporaryPasswordRequest(
+            @NotBlank(message = "Şifre zorunludur")
+            @Size(min = 8, max = 64, message = "Tek kullanımlık şifre 8-64 karakter olmalıdır")
+            String password
+    ) {
+    }
+
+    public record ChangePasswordRequest(
+            // Tek kullanımlık şifreyle girildiyse boş bırakılabilir
+            String currentPassword,
+
+            @NotBlank(message = "Yeni şifre zorunludur")
+            @Pattern(
+                    regexp = PASSWORD_REGEX,
+                    message = "Şifre en az 8 karakter olmalı; büyük harf, küçük harf ve özel karakter içermelidir"
+            )
+            String newPassword
+    ) {
+    }
+
+    public record PasswordResetRequestResponse(
+            Long id,
+            Long userId,
+            String fullName,
+            String email,
+            LocalDateTime createdAt
+    ) {
+        public static PasswordResetRequestResponse from(PasswordResetRequest r) {
+            return new PasswordResetRequestResponse(r.getId(), r.getUser().getId(), r.getUser().getFullName(),
+                    r.getUser().getEmail(), r.getCreatedAt());
+        }
+    }
+
+    public record MessageResponse(String message) {
     }
 }

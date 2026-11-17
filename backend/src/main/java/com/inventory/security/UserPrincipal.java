@@ -18,11 +18,15 @@ public record UserPrincipal(
         String email,
         String fullName,
         String password,
-        Role role
+        Role role,
+        boolean enabled,
+        // true = tek kullanımlık şifreyle girdi; yeni şifre belirleyene kadar sadece şifre değiştirebilir
+        boolean mustChangePassword
 ) implements UserDetails {
 
     public static UserPrincipal from(User user) {
-        return new UserPrincipal(user.getId(), user.getEmail(), user.getFullName(), user.getPassword(), user.getRole());
+        return new UserPrincipal(user.getId(), user.getEmail(), user.getFullName(), user.getPassword(),
+                user.getRole(), user.isEnabled(), user.isMustChangePassword());
     }
 
     public boolean isAdmin() {
@@ -61,6 +65,6 @@ public record UserPrincipal(
 
     @Override
     public boolean isEnabled() {
-        return true;
+        return enabled;
     }
 }

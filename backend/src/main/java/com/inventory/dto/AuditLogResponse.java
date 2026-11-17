@@ -1,6 +1,7 @@
 package com.inventory.dto;
 
 import com.inventory.model.AuditAction;
+import com.inventory.model.AuditEntityType;
 import com.inventory.model.AuditLog;
 
 import java.time.LocalDateTime;
@@ -9,9 +10,11 @@ import java.util.List;
 public record AuditLogResponse(
         Long id,
         AuditAction action,
-        Long equipmentId,
-        String equipmentName,
+        AuditEntityType entityType,
+        Long entityId,
+        String entityName,
         String performedBy,
+        String note,
         LocalDateTime createdAt,
         List<Change> changes
 ) {
@@ -25,9 +28,11 @@ public record AuditLogResponse(
         return new AuditLogResponse(
                 log.getId(),
                 log.getAction(),
-                log.getEquipmentId(),
-                log.getEquipmentName(),
+                log.getEntityType(),
+                log.getEntityId(),
+                log.getEntityName(),
                 log.getPerformedBy(),
+                log.getNote(),
                 log.getCreatedAt(),
                 changes
         );

@@ -15,7 +15,7 @@ function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
 
   if (user) {
-    return <Navigate to="/equipment" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   const handleChange = (e) => setForm({ ...form, [e.target.name]: e.target.value });
@@ -26,7 +26,7 @@ function LoginPage() {
     try {
       const loggedIn = await login(form.email, form.password);
       showToast(`Hoş geldin, ${loggedIn.firstName}!`);
-      navigate(location.state?.from || "/equipment", { replace: true });
+      navigate(location.state?.from || "/dashboard", { replace: true });
     } catch (err) {
       showToast(getErrorMessage(err, "Giriş yapılamadı"), "danger");
     } finally {
@@ -57,7 +57,12 @@ function LoginPage() {
               />
             </Form.Group>
             <Form.Group className="mb-4">
-              <Form.Label>Şifre</Form.Label>
+              <div className="d-flex justify-content-between">
+                <Form.Label>Şifre</Form.Label>
+                <Link to="/forgot-password" className="small">
+                  Şifremi unuttum
+                </Link>
+              </div>
               <Form.Control
                 type="password"
                 name="password"

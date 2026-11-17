@@ -5,6 +5,7 @@ import com.inventory.exception.ApiError;
 import com.inventory.repository.UserRepository;
 import com.inventory.security.JwtAuthenticationFilter;
 import com.inventory.security.JwtService;
+import com.inventory.security.PasswordChangeRequiredFilter;
 import com.inventory.security.UserPrincipal;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
@@ -48,16 +49,24 @@ public class SecurityConfig {
                                 writeError(response, objectMapper, HttpServletResponse.SC_FORBIDDEN, "Bu işlem için yetkiniz yok")))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/api/auth/login", "/api/auth/register", "/error").permitAll()
+                        .requestMatchers("/api/auth/login", "/api/auth/register",
+                                "/api/auth/forgot-password", "/error").permitAll()
                         // Sadece yönetici
-                        .requestMatchers("/api/users/**", "/api/audit-logs/**").hasRole("ADMIN")
+                        .requestMatchers("/api/users/**", "/api/audit-logs/**", "/api/reports/**").hasRole("ADMIN")
+                        .requestMatchers("/api/equipment/export", "/api/equipment/import",
+                                "/api/equipment/import-template").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/equipment/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.PUT, "/api/equipment/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.PATCH, "/api/equipment/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/equipment/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/reservations/*/approve",
+                                "/api/reservations/*/reject").hasRole("ADMIN")
                         // Diğer her şey için giriş yapmış olmak yeterli
                         .anyRequest().authenticated())
                 .addFilterBefore(new JwtAuthenticationFilter(jwtService, userDetailsService),
-                        UsernamePasswordAuthenticationFilter.class);
+                        UsernamePasswordAuthenticationFilter.class)
+                // Tek kullanımlık şifreyle girenler yeni şifre belirlemeden başka işlem yapamaz
+                .addFilterAfter(new PasswordChangeRequiredFilter(objectMapper), JwtAuthenticationFilter.class);
 
         return http.build();
     }
@@ -81,6 +90,8 @@ public class SecurityConfig {
         config.setAllowedOrigins(allowedOrigins);
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         config.setAllowedHeaders(List.of("Authorization", "Content-Type"));
+        // İndirilen dosyanın (Excel / PDF) adını tarayıcının okuyabilmesi için
+        config.setExposedHeaders(List.of("Content-Disposition"));
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);

@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Form, Modal } from "react-bootstrap";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button, Form } from "react-bootstrap";
 import { FaPlus } from "react-icons/fa";
 import FullCalendar from "@fullcalendar/react";
 import dayGridPlugin from "@fullcalendar/daygrid";
@@ -10,35 +10,50 @@ import client, { getErrorMessage } from "../api/client";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 import ReservationFormModal from "../components/ReservationFormModal";
-import { formatDateTime, toDateTimeLocal } from "../utils/format";
+import ReservationDetailModal from "../components/ReservationDetailModal";
+import { RESERVATION_STATUS, toDateTimeLocal, toLocalIso } from "../utils/format";
 import "../styles/calendar.css";
 
 // Her ekipman takvimde hep aynı renkte görünsün
 const COLORS = ["#2563eb", "#16a34a", "#d97706", "#dc2626", "#7c3aed", "#0891b2", "#db2777", "#4b5563"];
 const colorFor = (equipmentId) => COLORS[equipmentId % COLORS.length];
 
+// Takvimden kaldırılması gereken durumlar
+const HIDDEN_STATUSES = ["CANCELLED", "REJECTED"];
+
 function ReservationsPage() {
-  const { user, isAdmin } = useAuth();
+  const { user } = useAuth();
   const { showToast } = useToast();
   const calendarRef = useRef(null);
 
   const [reservations, setReservations] = useState([]);
   const [equipment, setEquipment] = useState([]);
+  const [range, setRange] = useState(null);
+  const [viewType, setViewType] = useState("dayGridMonth");
   const [equipmentFilter, setEquipmentFilter] = useState("");
   const [onlyMine, setOnlyMine] = useState(false);
 
-  // newReservation = { initialValues } | null, selected = rezervasyon detayı | null
+  // newReservation = { initialValues } | null, selected = rezervasyon | null
   const [newReservation, setNewReservation] = useState(null);
   const [selected, setSelected] = useState(null);
 
   useEffect(() => {
-    Promise.all([client.get("/reservations"), client.get("/equipment")])
-      .then(([resRes, eqRes]) => {
-        setReservations(resRes.data);
-        setEquipment(eqRes.data);
-      })
-      .catch((err) => showToast(getErrorMessage(err, "Veriler yüklenemedi"), "danger"));
+    client
+      .get("/equipment/options")
+      .then((res) => setEquipment(res.data))
+      .catch((err) => showToast(getErrorMessage(err, "Ekipmanlar yüklenemedi"), "danger"));
   }, [showToast]);
+
+  // Takvimde görünen aralık değiştikçe (ay / hafta geçişi) sadece o aralığı yükle
+  const loadRange = useCallback(() => {
+    if (!range) return;
+    client
+      .get("/reservations", { params: { from: toLocalIso(range.start), to: toLocalIso(range.end) } })
+      .then((res) => setReservations(res.data))
+      .catch((err) => showToast(getErrorMessage(err, "Rezervasyonlar yüklenemedi"), "danger"));
+  }, [range, showToast]);
+
+  useEffect(loadRange, [loadRange]);
 
   const events = useMemo(
     () =>
@@ -47,11 +62,12 @@ function ReservationsPage() {
         .filter((r) => !onlyMine || r.userId === user.id)
         .map((r) => ({
           id: String(r.id),
-          title: `${r.equipmentName} · ${r.userFullName}`,
+          title: `${r.equipmentName} · ${r.userFullName}${r.status === "PENDING" ? " (onay bekliyor)" : ""}`,
           start: r.startTime,
           end: r.endTime,
           backgroundColor: colorFor(r.equipmentId),
-          borderColor: colorFor(r.equipmentId),
+          borderColor: r.overdue ? "#dc2626" : colorFor(r.equipmentId),
+          classNames: [`event-${r.status.toLowerCase()}`, r.overdue ? "event-overdue" : ""],
           extendedProps: r,
         })),
     [reservations, equipmentFilter, onlyMine, user.id]
@@ -67,7 +83,6 @@ function ReservationsPage() {
 
   // Saatlik görünümde bir aralığı sürükleyerek seçince rezervasyon formunu doldur
   const handleSelect = (info) => {
-    // Ay görünümündeki tıklamaları dateClick yönetir
     if (info.view.type === "dayGridMonth") return;
     calendarRef.current.getApi().unselect();
     if (info.start < new Date()) {
@@ -83,24 +98,19 @@ function ReservationsPage() {
     });
   };
 
-  const handleCancel = async () => {
-    if (!window.confirm("Bu rezervasyon iptal edilsin mi?")) return;
-    try {
-      await client.delete(`/reservations/${selected.id}`);
-      setReservations((prev) => prev.filter((r) => r.id !== selected.id));
-      setSelected(null);
-      showToast("Rezervasyon iptal edildi");
-    } catch (err) {
-      showToast(getErrorMessage(err, "İptal edilemedi"), "danger");
-    }
+  const handleChanged = (updated) => {
+    setReservations((prev) =>
+      HIDDEN_STATUSES.includes(updated.status)
+        ? prev.filter((r) => r.id !== updated.id)
+        : prev.map((r) => (r.id === updated.id ? updated : r))
+    );
+    setSelected(null);
   };
-
-  const canCancel = selected && (isAdmin || selected.userId === user.id);
 
   return (
     <>
       <div className="page-header">
-        <h1 className="h3 mb-0">Rezervasyonlar</h1>
+        <h1 className="h3 mb-0">Rezervasyon Takvimi</h1>
         <Button variant="success" onClick={() => setNewReservation({ initialValues: undefined })}>
           <FaPlus className="me-1" /> Yeni Rezervasyon
         </Button>
@@ -126,6 +136,11 @@ function ReservationsPage() {
           checked={onlyMine}
           onChange={(e) => setOnlyMine(e.target.checked)}
         />
+        <div className="calendar-legend small text-muted ms-auto">
+          <span className="legend-item legend-pending">{RESERVATION_STATUS.PENDING.label}</span>
+          <span className="legend-item legend-returned">{RESERVATION_STATUS.RETURNED.label}</span>
+          <span className="legend-item legend-overdue">Gecikmiş iade</span>
+        </div>
       </div>
 
       <div className="calendar-card">
@@ -141,21 +156,29 @@ function ReservationsPage() {
             right: "dayGridMonth,timeGridWeek,timeGridDay",
           }}
           events={events}
+          datesSet={(info) => {
+            setRange({ start: info.start, end: info.end });
+            setViewType(info.view.type);
+          }}
           dateClick={handleDateClick}
           selectable
           selectMirror
           selectAllow={(info) => info.start.toDateString() === new Date(info.end - 1).toDateString()}
           select={handleSelect}
           eventClick={(info) => setSelected(info.event.extendedProps)}
-          slotMinTime="07:00:00"
-          slotMaxTime="21:00:00"
+          slotMinTime="00:00:00"
+          slotMaxTime="24:00:00"
+          scrollTime="07:00:00"
+          nowIndicator
           allDaySlot={false}
           dayMaxEvents={3}
-          height="auto"
+          // Ay görünümü içeriğe göre uzar; saatlik görünümlerde 24 saat kaydırılabilir alanda gösterilir
+          height={viewType === "dayGridMonth" ? "auto" : 720}
         />
       </div>
       <p className="text-muted small mt-2">
         İpucu: Hafta veya gün görünümünde boş bir saat aralığını sürükleyerek hızlıca rezervasyon oluşturabilirsiniz.
+        Bir rezervasyona tıklayarak teslim alma, iade ve iptal işlemlerini yapabilirsiniz.
       </p>
 
       <ReservationFormModal
@@ -169,40 +192,9 @@ function ReservationsPage() {
         }}
       />
 
-      {/* Rezervasyon detayı */}
-      <Modal show={selected !== null} onHide={() => setSelected(null)} centered>
-        <Modal.Header closeButton>
-          <Modal.Title>Rezervasyon Detayı</Modal.Title>
-        </Modal.Header>
-        {selected && (
-          <Modal.Body>
-            <dl className="row mb-0">
-              <dt className="col-4">Ekipman</dt>
-              <dd className="col-8">{selected.equipmentName}</dd>
-              <dt className="col-4">Seri No</dt>
-              <dd className="col-8">
-                <code>{selected.serialNumber}</code>
-              </dd>
-              <dt className="col-4">Rezerve Eden</dt>
-              <dd className="col-8">{selected.userFullName}</dd>
-              <dt className="col-4">Başlangıç</dt>
-              <dd className="col-8">{formatDateTime(selected.startTime)}</dd>
-              <dt className="col-4">Bitiş</dt>
-              <dd className="col-8">{formatDateTime(selected.endTime)}</dd>
-            </dl>
-          </Modal.Body>
-        )}
-        <Modal.Footer>
-          {canCancel && (
-            <Button variant="outline-danger" onClick={handleCancel}>
-              Rezervasyonu İptal Et
-            </Button>
-          )}
-          <Button variant="secondary" onClick={() => setSelected(null)}>
-            Kapat
-          </Button>
-        </Modal.Footer>
-      </Modal>
+      {selected && (
+        <ReservationDetailModal reservation={selected} onHide={() => setSelected(null)} onChanged={handleChanged} />
+      )}
     </>
   );
 }

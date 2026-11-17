@@ -1,219 +1,228 @@
-import { useEffect, useMemo, useState } from "react";
-import { Badge, Button, Card, Col, Form, Nav, Row, Tab, Table } from "react-bootstrap";
-import client, { getErrorMessage } from "../api/client";
+import { useMemo, useState } from "react";
+import { Badge, Button, Form, Nav, Spinner, Tab, Table } from "react-bootstrap";
+import { FaFilePdf } from "react-icons/fa";
+import { downloadFile, getErrorMessage } from "../api/client";
 import { useToast } from "../context/ToastContext";
-import { FIELD_LABELS, formatDateTime } from "../utils/format";
+import Pager from "../components/Pager";
+import ReservationDetailModal from "../components/ReservationDetailModal";
+import ReservationTable from "../components/ReservationTable";
+import { useDebounced, usePagedList } from "../hooks/usePagedList";
+import {
+  AUDIT_ACTIONS,
+  ENTITY_TYPES,
+  FIELD_LABELS,
+  RESERVATION_STATUS,
+  formatDateTime,
+  formatFieldValue,
+} from "../utils/format";
 
-const ACTIONS = {
-  CREATE: { label: "Eklenen", variant: "success" },
-  UPDATE: { label: "Güncellenen", variant: "primary" },
-  DELETE: { label: "Silinen", variant: "danger" },
-};
+/** Filtreleri kullanarak PDF indiren düğme. */
+function PdfButton({ url, params, name }) {
+  const { showToast } = useToast();
+  const [busy, setBusy] = useState(false);
+  const download = async () => {
+    setBusy(true);
+    try {
+      await downloadFile(url, params, name);
+    } catch (err) {
+      showToast(getErrorMessage(err, "PDF oluşturulamadı"), "danger");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Button variant="outline-danger" onClick={download} disabled={busy} className="ms-auto">
+      {busy ? <Spinner size="sm" animation="border" /> : <FaFilePdf className="me-1" />} PDF indir
+    </Button>
+  );
+}
 
-const emptyFilters = { user: "", equipment: "", date: "" };
+const emptyAuditFilters = { entityType: "", action: "", q: "", from: "", to: "" };
+
+function AuditLogTab() {
+  const [filters, setFilters] = useState(emptyAuditFilters);
+  const q = useDebounced(filters.q);
+  const query = useMemo(() => ({ ...filters, q: q.trim() }), [filters, q]);
+  const { data, loading, setPage } = usePagedList("/audit-logs", query, { errorMessage: "Kayıtlar yüklenemedi" });
+
+  const set = (e) => setFilters({ ...filters, [e.target.name]: e.target.value });
+
+  return (
+    <>
+      <div className="filter-bar">
+        <Form.Select name="entityType" value={filters.entityType} onChange={set} aria-label="Kayıt türü">
+          <option value="">Tüm kayıt türleri</option>
+          {Object.entries(ENTITY_TYPES).map(([k, label]) => (
+            <option key={k} value={k}>
+              {label}
+            </option>
+          ))}
+        </Form.Select>
+        <Form.Select name="action" value={filters.action} onChange={set} aria-label="İşlem">
+          <option value="">Tüm işlemler</option>
+          {Object.entries(AUDIT_ACTIONS).map(([k, { label }]) => (
+            <option key={k} value={k}>
+              {label}
+            </option>
+          ))}
+        </Form.Select>
+        <Form.Control name="q" placeholder="Kayıt adı veya kişi" value={filters.q} onChange={set} />
+        <Form.Control type="date" name="from" value={filters.from} onChange={set} aria-label="Başlangıç tarihi" />
+        <Form.Control type="date" name="to" value={filters.to} min={filters.from} onChange={set} aria-label="Bitiş tarihi" />
+        <Button variant="link" onClick={() => setFilters(emptyAuditFilters)}>
+          Temizle
+        </Button>
+        <PdfButton url="/reports/audit-logs.pdf" params={query} name="islem-gecmisi.pdf" />
+      </div>
+
+      <Table bordered hover responsive className={`bg-white ${loading ? "table-loading" : ""}`}>
+        <thead>
+          <tr>
+            <th>Tarih</th>
+            <th>Tür</th>
+            <th>İşlem</th>
+            <th>Kayıt</th>
+            <th>İşlemi Yapan</th>
+            <th>Ayrıntı</th>
+          </tr>
+        </thead>
+        <tbody>
+          {!loading && data.content.length === 0 && (
+            <tr>
+              <td colSpan={6} className="text-center text-muted py-4">
+                Kayıt bulunamadı
+              </td>
+            </tr>
+          )}
+          {data.content.map((log) => {
+            const action = AUDIT_ACTIONS[log.action] ?? { label: log.action, variant: "secondary" };
+            return (
+              <tr key={log.id}>
+                <td className="text-nowrap">{formatDateTime(log.createdAt)}</td>
+                <td>{ENTITY_TYPES[log.entityType]}</td>
+                <td>
+                  <Badge bg={action.variant} text={action.variant === "warning" || action.variant === "info" ? "dark" : undefined}>
+                    {action.label}
+                  </Badge>
+                </td>
+                <td>{log.entityName}</td>
+                <td>{log.performedBy}</td>
+                <td className="small">
+                  {log.changes.map((c) => (
+                    <div key={c.field} className="change-row">
+                      <Badge bg="light" text="dark" className="me-2">
+                        {FIELD_LABELS[c.field] || c.field}
+                      </Badge>
+                      <span className="text-danger text-decoration-line-through">
+                        {formatFieldValue(c.field, c.oldValue) ?? "boş"}
+                      </span>
+                      {" → "}
+                      <span className="text-success">{formatFieldValue(c.field, c.newValue) ?? "boş"}</span>
+                    </div>
+                  ))}
+                  {log.note && <div className="text-muted">{log.note}</div>}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </Table>
+      <Pager data={data} onChange={setPage} />
+    </>
+  );
+}
+
+const emptyReservationFilters = { user: "", equipment: "", status: "", from: "", to: "", overdue: false };
+
+function ReservationReportTab() {
+  const [filters, setFilters] = useState(emptyReservationFilters);
+  const [selected, setSelected] = useState(null);
+  const user = useDebounced(filters.user);
+  const equipment = useDebounced(filters.equipment);
+  const query = useMemo(
+    () => ({ ...filters, user: user.trim(), equipment: equipment.trim() }),
+    [filters, user, equipment]
+  );
+  const { data, loading, setPage, updateItem } = usePagedList("/reservations/search", query);
+
+  const set = (e) => {
+    const { name, value, type, checked } = e.target;
+    setFilters({ ...filters, [name]: type === "checkbox" ? checked : value });
+  };
+
+  return (
+    <>
+      <div className="filter-bar">
+        <Form.Control name="user" placeholder="Kişi adı" value={filters.user} onChange={set} />
+        <Form.Control name="equipment" placeholder="Ekipman adı veya seri no" value={filters.equipment} onChange={set} />
+        <Form.Select name="status" value={filters.status} onChange={set} aria-label="Durum">
+          <option value="">Tüm durumlar</option>
+          {Object.entries(RESERVATION_STATUS).map(([k, { label }]) => (
+            <option key={k} value={k}>
+              {label}
+            </option>
+          ))}
+        </Form.Select>
+        <Form.Control type="date" name="from" value={filters.from} onChange={set} aria-label="Başlangıç tarihi" />
+        <Form.Control type="date" name="to" value={filters.to} min={filters.from} onChange={set} aria-label="Bitiş tarihi" />
+        <Form.Check
+          type="switch"
+          id="overdue-only"
+          name="overdue"
+          label="Sadece gecikmiş"
+          checked={filters.overdue}
+          onChange={set}
+        />
+        <Button variant="link" onClick={() => setFilters(emptyReservationFilters)}>
+          Temizle
+        </Button>
+        <PdfButton url="/reports/reservations.pdf" params={query} name="rezervasyon-raporu.pdf" />
+      </div>
+
+      <ReservationTable items={data.content} loading={loading} onSelect={setSelected} />
+      <Pager data={data} onChange={setPage} />
+
+      {selected && (
+        <ReservationDetailModal
+          reservation={selected}
+          onHide={() => setSelected(null)}
+          onChanged={(updated) => {
+            updateItem(updated);
+            setSelected(null);
+          }}
+        />
+      )}
+    </>
+  );
+}
 
 function ReportsPage() {
-  const { showToast } = useToast();
-  const [logs, setLogs] = useState([]);
-  const [reservations, setReservations] = useState([]);
-  const [filters, setFilters] = useState(emptyFilters);
-
-  useEffect(() => {
-    Promise.all([client.get("/audit-logs"), client.get("/reservations")])
-      .then(([logRes, resRes]) => {
-        setLogs(logRes.data);
-        setReservations(resRes.data);
-      })
-      .catch((err) => showToast(getErrorMessage(err, "Raporlar yüklenemedi"), "danger"));
-  }, [showToast]);
-
-  const logsByAction = useMemo(() => {
-    const groups = { CREATE: [], UPDATE: [], DELETE: [] };
-    logs.forEach((log) => groups[log.action]?.push(log));
-    return groups;
-  }, [logs]);
-
-  // Filtreler yazıldıkça liste anında güncellenir
-  const filteredReservations = useMemo(() => {
-    const contains = (value, q) => value.toLocaleLowerCase("tr").includes(q.trim().toLocaleLowerCase("tr"));
-    return reservations
-      .filter((r) => contains(r.userFullName, filters.user))
-      .filter((r) => contains(`${r.equipmentName} ${r.serialNumber}`, filters.equipment))
-      .filter((r) => !filters.date || r.startTime.startsWith(filters.date))
-      .sort((a, b) => b.startTime.localeCompare(a.startTime));
-  }, [reservations, filters]);
-
-  const setFilter = (e) => setFilters({ ...filters, [e.target.name]: e.target.value });
-
   return (
     <>
       <div className="page-header">
         <h1 className="h3 mb-0">Raporlar</h1>
       </div>
 
-      {/* Özet kartları */}
-      <Row className="g-3 mb-4">
-        {Object.entries(ACTIONS).map(([action, { label, variant }]) => (
-          <Col sm={6} lg={3} key={action}>
-            <Card className={`stat-card border-${variant}`}>
-              <Card.Body>
-                <div className="text-muted small">{label} Ekipman</div>
-                <div className="fs-3 fw-semibold">{logsByAction[action].length}</div>
-              </Card.Body>
-            </Card>
-          </Col>
-        ))}
-        <Col sm={6} lg={3}>
-          <Card className="stat-card border-warning">
-            <Card.Body>
-              <div className="text-muted small">Toplam Rezervasyon</div>
-              <div className="fs-3 fw-semibold">{reservations.length}</div>
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
-
-      <Tab.Container defaultActiveKey="CREATE">
+      <Tab.Container defaultActiveKey="audit">
         <Nav variant="tabs" className="mb-3">
-          {Object.entries(ACTIONS).map(([action, { label }]) => (
-            <Nav.Item key={action}>
-              <Nav.Link eventKey={action}>{label}</Nav.Link>
-            </Nav.Item>
-          ))}
           <Nav.Item>
-            <Nav.Link eventKey="RESERVATIONS">Rezervasyonlar</Nav.Link>
+            <Nav.Link eventKey="audit">İşlem Geçmişi</Nav.Link>
+          </Nav.Item>
+          <Nav.Item>
+            <Nav.Link eventKey="reservations">Rezervasyonlar</Nav.Link>
           </Nav.Item>
         </Nav>
-
         <Tab.Content>
-          {/* Ekleme ve silme kayıtları */}
-          {["CREATE", "DELETE"].map((action) => (
-            <Tab.Pane eventKey={action} key={action}>
-              <Table striped bordered hover responsive className="bg-white">
-                <thead>
-                  <tr>
-                    <th>Tarih</th>
-                    <th>Ekipman</th>
-                    <th>İşlemi Yapan</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {logsByAction[action].length === 0 && <EmptyRow colSpan={3} />}
-                  {logsByAction[action].map((log) => (
-                    <tr key={log.id}>
-                      <td className="text-nowrap">{formatDateTime(log.createdAt)}</td>
-                      <td>
-                        {log.equipmentName} <span className="text-muted">#{log.equipmentId}</span>
-                      </td>
-                      <td>{log.performedBy}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </Table>
-            </Tab.Pane>
-          ))}
-
-          {/* Güncelleme kayıtları: değişen her alan eski → yeni değeriyle */}
-          <Tab.Pane eventKey="UPDATE">
-            <Table bordered hover responsive className="bg-white">
-              <thead>
-                <tr>
-                  <th>Tarih</th>
-                  <th>Ekipman</th>
-                  <th>İşlemi Yapan</th>
-                  <th>Değişiklikler</th>
-                </tr>
-              </thead>
-              <tbody>
-                {logsByAction.UPDATE.length === 0 && <EmptyRow colSpan={4} />}
-                {logsByAction.UPDATE.map((log) => (
-                  <tr key={log.id}>
-                    <td className="text-nowrap">{formatDateTime(log.createdAt)}</td>
-                    <td>
-                      {log.equipmentName} <span className="text-muted">#{log.equipmentId}</span>
-                    </td>
-                    <td>{log.performedBy}</td>
-                    <td>
-                      {log.changes.map((c) => (
-                        <div key={c.field} className="change-row">
-                          <Badge bg="light" text="dark" className="me-2">
-                            {FIELD_LABELS[c.field] || c.field}
-                          </Badge>
-                          <span className="text-danger text-decoration-line-through">{c.oldValue ?? "boş"}</span>
-                          {" → "}
-                          <span className="text-success">{c.newValue ?? "boş"}</span>
-                        </div>
-                      ))}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
+          <Tab.Pane eventKey="audit">
+            <AuditLogTab />
           </Tab.Pane>
-
-          {/* Rezervasyonlar */}
-          <Tab.Pane eventKey="RESERVATIONS">
-            <Row className="g-2 mb-3">
-              <Col md={4}>
-                <Form.Control name="user" placeholder="Kişi adı" value={filters.user} onChange={setFilter} />
-              </Col>
-              <Col md={4}>
-                <Form.Control
-                  name="equipment"
-                  placeholder="Ekipman adı veya seri no"
-                  value={filters.equipment}
-                  onChange={setFilter}
-                />
-              </Col>
-              <Col md={3}>
-                <Form.Control type="date" name="date" value={filters.date} onChange={setFilter} />
-              </Col>
-              <Col md={1} className="d-grid">
-                <Button variant="outline-secondary" onClick={() => setFilters(emptyFilters)} title="Filtreleri temizle">
-                  Temizle
-                </Button>
-              </Col>
-            </Row>
-
-            <Table striped bordered hover responsive className="bg-white">
-              <thead>
-                <tr>
-                  <th>Rezerve Eden</th>
-                  <th>Ekipman</th>
-                  <th>Seri No</th>
-                  <th>Başlangıç</th>
-                  <th>Bitiş</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredReservations.length === 0 && <EmptyRow colSpan={5} />}
-                {filteredReservations.map((r) => (
-                  <tr key={r.id}>
-                    <td>{r.userFullName}</td>
-                    <td>{r.equipmentName}</td>
-                    <td>
-                      <code>{r.serialNumber}</code>
-                    </td>
-                    <td className="text-nowrap">{formatDateTime(r.startTime)}</td>
-                    <td className="text-nowrap">{formatDateTime(r.endTime)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
+          <Tab.Pane eventKey="reservations" mountOnEnter>
+            <ReservationReportTab />
           </Tab.Pane>
         </Tab.Content>
       </Tab.Container>
+      <p className="text-muted small mt-2">Ekipman envanteri PDF'i Ekipmanlar sayfasındaki "PDF" düğmesinden alınabilir.</p>
     </>
-  );
-}
-
-function EmptyRow({ colSpan }) {
-  return (
-    <tr>
-      <td colSpan={colSpan} className="text-center text-muted py-4">
-        Kayıt bulunamadı
-      </td>
-    </tr>
   );
 }
 
